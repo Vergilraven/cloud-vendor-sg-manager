@@ -1,0 +1,2 @@
+requests==2.32.3
+alibabacloud_ecs20140526==4.4.9
