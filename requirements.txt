@@ -1,2 +1,5 @@
+urllib3==2.2.3
 requests==2.32.3
+colorama==0.4.6
+PyYAML==6.0.2
 alibabacloud_ecs20140526==4.4.9

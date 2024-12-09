@@ -1,0 +1,7 @@
+aliCloud:
+  region: YourRegion
+  securityGroupId: "YourSecurityGroupId"
+  accessKeyId: "YourAccessKeyId"
+  accessKeySecret: "YourAccessSecretKey"
+  monitorProtocol:
+    - ssh

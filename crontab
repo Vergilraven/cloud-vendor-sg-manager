@@ -1,0 +1,1 @@
+*/2 * * * * cd /app && python3 ecs_sg_manager.py >> /app/logs/sg_manager.log 2>> /app/logs/sg_manager.error.log
