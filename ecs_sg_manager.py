@@ -112,6 +112,7 @@ class SecretKeeper:
 class EcsSgManager(SecretKeeper):
     def __init__(self, secret_file: Path) -> None:
         super().__init__(secret_file)
+        self.config = super().get_secrets()
 
     @staticmethod
     def create_client(reg_name: str, ak_id: str, sk_id: str) -> Ecs20140526Client:
@@ -162,6 +163,13 @@ class EcsSgManager(SecretKeeper):
                     return True
                 else:
                     return False
+            case "redis":
+                if port_range == "6379/6379":
+                    return True
+                elif port_range == "6379":
+                    return True
+                else:
+                    return False
             case "https":
                 if port_range == "443/443":
                     return True
@@ -190,7 +198,7 @@ class EcsSgManager(SecretKeeper):
 
     @staticmethod
     def sg_details_parser(sg_api_data: dict, check_ip_addr: str,
-                           monitor_protocol: list) -> None:
+                           monitor_protocol: list) -> list:
         try:
             sg_info = sg_api_data["Permissions"]["Permission"]
             call_back = list()
@@ -209,15 +217,16 @@ class EcsSgManager(SecretKeeper):
             logger.error("==> Parse API data error <==")
 
     async def get_sg_details_request(self, current_ip_addr: str) -> None:
-        config = super().get_secrets()
-        ak = config["ak"]
-        sk = config["sk"]
-        reg = config["reg"]
-        sg_id = config["sg_id"]
-        monitor_protocol = config["protocol"]
-        ecs_client = EcsSgManager.create_client(reg_name=reg, ak_id=ak, sk_id=sk)
-        sg_resp = ecs_20140526_models.DescribeSecurityGroupAttributeRequest(region_id=reg,
-                                                                            security_group_id=sg_id)
+        """
+        拿到安全组详细信息的请求
+        :param current_ip_addr:
+        :return: None
+        """
+        # monitor_protocol = config["protocol"]
+        logger.debug(self.config)
+        ecs_client = EcsSgManager.create_client(reg_name=self.config["reg"], ak_id=self.config["ak"], sk_id=self.config["sk"])
+        sg_resp = ecs_20140526_models.DescribeSecurityGroupAttributeRequest(region_id=self.config["reg"],
+                                                                            security_group_id=self.config["sg_id"])
         runtime = util_models.RuntimeOptions()
         try:
             sg_details_resp = await ecs_client.describe_security_group_attribute_with_options_async(sg_resp, runtime)
@@ -227,25 +236,26 @@ class EcsSgManager(SecretKeeper):
             if EcsSgManager.check_state(sg_details_state_code):
                 sg_details_map = json.dumps(sg_details_body.to_map(), indent=4)
                 sg_details_info = json.loads(sg_details_map)
-                ip_check_res = EcsSgManager.sg_details_parser(sg_api_data=sg_details_info,
-                                                               check_ip_addr=current_ip_addr,
-                                                               monitor_protocol=monitor_protocol[0])
-                if ip_check_res:
-                    EcsSgManager.write_ip_lst(ip_addr=current_ip_addr)
-                    logger.info(ip_check_res)
-                    logger.info("==> record local ip address <==")
-                else:
-                    perm_dict = dict()
-                    perm_dict["policy"] = "accept"
-                    perm_dict["priority"] = random.choice(range(1, 101))
-                    perm_dict["ip_protocol"] = "TCP"
-                    perm_dict["source_cidr_ip"] = f"{current_ip_addr.replace('\n', '').rstrip('').lstrip('')}/32"
-                    perm_dict["portRange"] = "1688/1688"
-                    perm_dict["description"] = f"work-from-home-ip-{dt.now().strftime('%Y%m%d-%H%M%S')}"
-                    await self.create_sg_inbound(permissions_dic=perm_dict)
-                    logger.info(perm_dict)
-                    EcsSgManager.write_ip_lst(ip_addr=current_ip_addr)
-                    logger.info("==> Record ip address in security group <==")
+                for protocol in self.config["protocol"]:
+                    check_res = EcsSgManager.sg_details_parser(sg_api_data=sg_details_info,
+                                                                   check_ip_addr=current_ip_addr,
+                                                                   monitor_protocol=protocol)
+                    if check_res:
+                        EcsSgManager.write_ip_lst(ip_addr=current_ip_addr)
+                        logger.info(check_res)
+                        logger.info("==> record local ip address <==")
+                    else:
+                        perm_dict = dict()
+                        perm_dict["policy"] = "accept"
+                        perm_dict["priority"] = random.choice(range(1, 101))
+                        perm_dict["ipProtocol"] = "TCP"
+                        perm_dict["sourceCidrIp"] = f"{current_ip_addr.replace('\n', '').rstrip('').lstrip('')}/32"
+                        perm_dict["portRange"] = "1688/1688"
+                        perm_dict["description"] = f"work-from-home-ip-{dt.now().strftime('%Y%m%d-%H%M%S')}"
+                        await self.create_sg_inbound(permissions_dic=perm_dict)
+                        logger.info(perm_dict)
+                        EcsSgManager.write_ip_lst(ip_addr=current_ip_addr)
+                        logger.info("==> Record ip address in security group <==")
             else:
                 sg_details_headers = json.dumps(sg_details_head.to_map(), indent=4)
                 sg_details_headers_info = json.loads(sg_details_headers)
@@ -256,18 +266,18 @@ class EcsSgManager(SecretKeeper):
             raise err
 
     async def create_sg_inbound(self, permissions_dic: dict) -> None:
-        config = super().get_secrets()
-        ak = config["ak"]
-        sk = config["sk"]
-        reg = config["reg"]
-        sg_id = config["sg_id"]
-        monitor_protocol = config["protocol"]
+        # config = super().get_secrets()
+        # ak = config["ak"]
+        # sk = config["sk"]
+        # reg = config["reg"]
+        # sg_id = config["sg_id"]
+        # monitor_protocol = config["protocol"]
         for protocol in monitor_protocol:
             add_permissions = ecs_20140526_models.AuthorizeSecurityGroupRequestPermissions(
                 policy=permissions_dic["policy"],
                 priority=permissions_dic["priority"],
-                ip_protocol=permissions_dic["ip_protocol"],
-                source_cidr_ip=permissions_dic["source_cidr_ip"],
+                ip_protocol=permissions_dic["ipProtocol"],
+                source_cidr_ip=permissions_dic["sourceCidrIp"],
                 port_range=permissions_dic["portRange"],
                 description=permissions_dic["description"]
             )
@@ -282,6 +292,12 @@ class EcsSgManager(SecretKeeper):
                 logger.error(err)
 
     async def sg_runner(self) -> None:
+        config = super().get_secrets()
+        ak = config["ak"]
+        sk = config["sk"]
+        reg = config["reg"]
+        sg_id = config["sg_id"]
+        monitor_protocol = config["protocol"]
         ip_lst = EcsSgManager.read_ip_lst()
         current_ip_addr = GetLocalIpAddress.get_external_ip()
         formated_current_ip = f"{current_ip_addr.replace('\n', '').rstrip('').lstrip('')}"
